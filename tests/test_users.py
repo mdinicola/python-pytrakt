@@ -124,6 +124,13 @@ def test_watched():
         assert all([isinstance(m, Movie) for m in sean.watched_movies])
         assert all([isinstance(s, TVShow) for s in sean.watched_shows])
 
+def test_unwatched():
+    sean = User('sean')
+    for _ in range(2):
+        unwatched_movies = sean.unwatched_movies
+        assert all([isinstance(m, Movie) for m in unwatched_movies])
+        assert(len(unwatched_movies) == 1)
+        assert(sean.unwatched_movies[0].title == 'TRON: Legacy')
 
 def test_stats():
     sean = User('sean')

@@ -378,3 +378,11 @@ class Movie(IdsMixin):
         """String representation of a :class:`Movie`"""
         return '<Movie>: {}'.format(self.title)
     __repr__ = __str__
+
+    def __hash__(self):
+        return hash(self.slug)
+    
+    def __eq__(self, other):
+        if isinstance(other, Movie):
+            return self.slug == other.slug
+        return NotImplemented

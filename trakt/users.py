@@ -335,6 +335,7 @@ class User:
         self._show_ratings = self._movie_ratings = self._watched_movies = None
         self._episode_watchlist = self._show_watchlist = None
         self._movie_watchlist = None
+        self._unwatched_movies = None
 
         self._settings = None
 
@@ -519,6 +520,17 @@ class User:
                 movie_data.update(movie)
                 self._watched_movies.append(Movie(**movie_data))
         yield self._watched_movies
+
+    @property
+    def unwatched_movies(self):
+        """Unwatched :class:`Movie`'s from this :class:`User`'s collection.
+        Protected users won't return any data unless you are friends.
+        """
+        if self._unwatched_movies is None:
+            collected_movies = set(self.movie_collection)
+            watched_movies = set(self.watched_movies)
+            self._unwatched_movies = list(collected_movies - watched_movies)
+        return self._unwatched_movies
 
     @property
     @get
