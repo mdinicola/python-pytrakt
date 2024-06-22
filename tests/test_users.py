@@ -124,7 +124,7 @@ def test_watched():
         assert all([isinstance(m, Movie) for m in sean.watched_movies])
         assert all([isinstance(s, TVShow) for s in sean.watched_shows])
 
-def test_unwatched():
+def test_unwatched_movies():
     sean = User('sean')
     for _ in range(2):
         unwatched_movies = sean.unwatched_movies
