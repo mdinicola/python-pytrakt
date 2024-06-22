@@ -19,6 +19,8 @@ from requests_oauthlib import OAuth2Session
 from trakt import errors
 from trakt.errors import BadResponseException
 
+import boto3
+
 __author__ = 'Jon Nappi'
 __all__ = ['Airs', 'Alias', 'Comment', 'Genre', 'get', 'delete', 'post', 'put',
            'init', 'BASE_URL', 'CLIENT_ID', 'CLIENT_SECRET', 'DEVICE_AUTH',
@@ -42,8 +44,21 @@ REDIRECT_URI = 'urn:ietf:wg:oauth:2.0:oob'
 #: Default request HEADERS
 HEADERS = {'Content-Type': 'application/json', 'trakt-api-version': '2'}
 
-#: Default path for where to store your trakt.tv API authentication information
+#: Type of storage for your trakt.tv API authentication information.
+#: Options include FILE or AWS_SECRETS_MANAGER.  Default is ``FILE``
+CONFIG_TYPE = 'FILE'
+
+#: Default file path for where to store your trakt.tv API authentication information
 CONFIG_PATH = os.path.join(os.path.expanduser('~'), '.pytrakt.json')
+
+#: AWS profile name to use for authenticating with Secrets Manager
+#: Used with CONFIG_TYPE = 'AWS_SECRETS_MANAGER'
+#: If running in a Lambda function, leave this blank to use the Lambda function's role
+AWS_PROFILE_NAME = None
+
+#: Secret name in AWS Secrets Manager to store your trakt.tv API authentication information.
+#: Used with CONFIG_TYPE = 'AWS_SECRETS_MANAGER'
+CONFIG_SECRET_NAME = None
 
 #: Your personal Trakt.tv OAUTH Bearer Token
 OAUTH_TOKEN = None
@@ -75,14 +90,53 @@ APPLICATION_ID = None
 #: Global session to make requests with
 session = requests.Session()
 
+def _get_aws_client():
+    if AWS_PROFILE_NAME is not None:
+        aws_session = boto3.Session(profile_name=AWS_PROFILE_NAME)
+    else:
+        aws_session = boto3.Session()
+    return aws_session.client('secretsmanager')
+
+
+def _get_secret(aws_client, secret_name):
+    if secret_name is None:
+        raise TypeError("Secret Name cannot be empty")
+
+    try:
+        data = { 'SecretId': secret_name }
+        response = aws_client.get_secret_value(**data)
+        if 'SecretString' in response:
+            return json.loads(response.get('SecretString'))
+        else:
+            raise KeyError(f'Missing SecretString in secret {secret_name}')
+    except Exception as e:
+        raise Exception(f'Could not get secret value for {secret_name} with error {e}')
+
+
+def _update_secret(aws_client, secret_name, **kwargs):
+    secret = _get_secret(aws_client, secret_name)
+    try:
+        for key, value in kwargs.items():
+            secret[key] = value
+        data = { 'SecretId': secret_name, 'SecretString': json.dumps(secret) }
+        aws_client.put_secret_value(**data)
+    except Exception as e:
+        raise Exception(f'Could not update secret {secret_name} with error {e}')
 
 def _store(**kwargs):
     """Helper function used to store Trakt configurations at ``CONFIG_PATH``
 
     :param kwargs: Keyword args to store at ``CONFIG_PATH``
     """
-    with open(CONFIG_PATH, 'w') as config_file:
-        json.dump(kwargs, config_file)
+
+    if CONFIG_TYPE == 'FILE':
+        with open(CONFIG_PATH, 'w') as config_file:
+            json.dump(kwargs, config_file)
+    elif CONFIG_TYPE == 'AWS_SECRETS_MANAGER':
+        if CONFIG_SECRET_NAME is None:
+            raise ValueError("Secret name cannot be empty. Please set CONFIG_SECRET_NAME")
+        aws_client = _get_aws_client()
+        _update_secret(aws_client, CONFIG_SECRET_NAME, **kwargs)
 
 
 def _get_client_info(app_id=False):
@@ -444,14 +498,22 @@ def _refresh_token(s):
 
 
 def load_config():
-    """Manually load config from json config file."""
+    """Manually load config from json config file or AWS Secrets Manager"""
     global CLIENT_ID, CLIENT_SECRET, OAUTH_TOKEN, OAUTH_EXPIRES_AT
     global OAUTH_REFRESH, APPLICATION_ID, CONFIG_PATH
-    if (CLIENT_ID is None or CLIENT_SECRET is None) and \
-            os.path.exists(CONFIG_PATH):
-        # Load in trakt API auth data from CONFIG_PATH
-        with open(CONFIG_PATH) as config_file:
-            config_data = json.load(config_file)
+    if (CLIENT_ID is None or CLIENT_SECRET is None):
+        if CONFIG_TYPE == 'FILE':
+            if os.path.exists(CONFIG_PATH):
+                # Load in trakt API auth data from CONFIG_PATH
+                with open(CONFIG_PATH) as config_file:
+                    config_data = json.load(config_file)
+            else:
+                return
+        elif CONFIG_TYPE == 'AWS_SECRETS_MANAGER':
+            if CONFIG_SECRET_NAME is None:
+                raise ValueError("Secret name cannot be empty. Please set CONFIG_SECRET_NAME")
+            aws_client = _get_aws_client()
+            config_data = _get_secret(aws_client, CONFIG_SECRET_NAME)
 
         if CLIENT_ID is None:
             CLIENT_ID = config_data.get('CLIENT_ID', None)
