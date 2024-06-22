@@ -56,6 +56,10 @@ CONFIG_PATH = os.path.join(os.path.expanduser('~'), '.pytrakt.json')
 #: If running in a Lambda function, leave this blank to use the Lambda function's role
 AWS_PROFILE_NAME = None
 
+#: Specify the secrets manager url.  Useful for running locally.  Leave blank to use default value.
+#: Used with CONFIG_TYPE = 'AWS_SECRETS_MANAGER'
+AWS_SECRETS_MANAGER_ENDPOINT = None
+
 #: Secret name in AWS Secrets Manager to store your trakt.tv API authentication information.
 #: Used with CONFIG_TYPE = 'AWS_SECRETS_MANAGER'
 CONFIG_SECRET_NAME = None
@@ -91,10 +95,14 @@ APPLICATION_ID = None
 session = requests.Session()
 
 def _get_aws_client():
+    if AWS_SECRETS_MANAGER_ENDPOINT is not None:
+        return aws_session.client('secretsmanager', endpoint_url=AWS_SECRETS_MANAGER_ENDPOINT)
+    
     if AWS_PROFILE_NAME is not None:
         aws_session = boto3.Session(profile_name=AWS_PROFILE_NAME)
     else:
         aws_session = boto3.Session()
+
     return aws_session.client('secretsmanager')
 
 
